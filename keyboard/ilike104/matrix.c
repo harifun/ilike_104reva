@@ -27,16 +27,27 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "util.h"
 #include "matrix.h"
 
-#define NUM_MAIN 	(PINF&0xE0)>>5
 #define DATA_MAIN 	PIND
-#define NUM_NUM 	(((PINF&0x10)>>2)|(PINF&0x03))
 #define DATA_NUM	PINB
+
+#define CS_M_SET	PORTF |= 0x20
+#define CS_M_CLR	PORTF &= 0xDF
+#define SCK_M_SET	PORTF |= 0x40
+#define SCK_M_CLR	PORTF &= 0xBF
+
+#define CS_N_SET	PORTF |= 0x01
+#define CS_N_CLR	PORTF &= 0xFE
+#define SCK_N_SET	PORTF |= 0x02
+#define SCK_N_CLR	PORTF &= 0xFD
+#define SDI_N_SET	PORTF |= 0x10
+#define SDI_N_CLR	PORTF &= 0xEF
 
 #ifndef DEBOUNCE
 #   define DEBOUNCE	5
 #endif
 static uint8_t debouncing = DEBOUNCE;
 uint8_t CODE[14];
+static uint8_t flash_ctr = 0x00;
 
 /* matrix state(1:on, 0:off) */
 static matrix_row_t matrix[MATRIX_ROWS];
@@ -68,7 +79,7 @@ void Init_IO(void)
 	DDRD &= 0x00;
 	PORTD |= 0xFF;
 	
-	DDRF &= 0x0C;
+	DDRF |= 0xF3;
 	PORTF |= 0xF3;
 	
 	DDRE |= 0x40;
@@ -92,40 +103,64 @@ void matrix_init(void)
 	JTAG_Disable();
 }
 
-void Keyscan(void)
+void Scan_Main(void)
 {
-	uint8_t i,j;
-	j = NUM_MAIN;
-	asm("nop");
-	while(j == NUM_MAIN)
-		asm("nop");
+	uint8_t i;
+	CS_M_CLR;
+	_delay_us(2);
+	CS_M_SET;
 	_delay_us(2);
 	for(i=0;i<8;i++)
 	{
-		j = NUM_MAIN;
-		asm("nop");
-		CODE[j] = DATA_MAIN;
-		asm("nop");
-		while(j == NUM_MAIN)
-			asm("nop");
+		SCK_M_CLR;
+		_delay_us(2);
+		CODE[i] = DATA_MAIN;
+		SCK_M_SET;
 		_delay_us(2);
 	}
-	
-	j = NUM_NUM;
-	asm("nop");
-	while(j == NUM_NUM)
-		asm("nop");
+}
+
+void Scan_Num(void)
+{
+	uint8_t i;
+	CS_N_CLR;
+	_delay_us(2);
+	CS_N_SET;
 	_delay_us(2);
 	for(i=0;i<6;i++)
 	{
-		j = NUM_NUM;
-		asm("nop");
-		CODE[8+j] = DATA_NUM;
-		asm("nop");
-		while(j == NUM_NUM)
-			asm("nop");
+		SCK_N_CLR;
+		_delay_us(2);
+		CODE[i+8] = DATA_NUM;
+		SCK_N_SET;
 		_delay_us(2);
 	}
+}
+
+void Write_Flash(void)
+{
+	uint8_t i;
+	CS_N_CLR;
+	_delay_us(2);
+	CS_N_SET;
+	_delay_us(2);
+	for(i=0;i<2;i++)
+	{
+		SCK_N_CLR;
+		if(flash_ctr & (1<<(i+6)))
+			SDI_N_SET;
+		else
+			SDI_N_CLR;
+		_delay_us(2);
+		SCK_N_SET;
+		_delay_us(2);
+	}	
+}
+
+void Keyscan(void)
+{
+	Scan_Main();
+	Scan_Num();
 }
 
 uint8_t matrix_scan(void)
